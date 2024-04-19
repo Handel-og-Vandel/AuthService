@@ -11,12 +11,13 @@ jobs:
     env:
       DOCKER_USER: ${{ secrets.DOCKER_USER }}
       DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
+      SERVICE_NAME: 'haav-authservice'
     steps:
     - uses: actions/checkout@v4
     - name: Log in to Docker Hub
       run:
         docker login --username $DOCKER_USER --password $DOCKER_PASSWORD
     - name: Build the Docker image
-      run: docker build . --file AuthService/Dockerfile --tag ${DOCKER_USER}/authservice:latest
+      run: docker build . --file AuthService/Dockerfile --tag ${DOCKER_USER}/${SERVICE_NAME}:latest
     - name: Push Docker image to Docker Hub
-      run: docker push ${DOCKER_USER}/authservice:latest
+      run: docker push ${DOCKER_USER}/${SERVICE_NAME}:latest
