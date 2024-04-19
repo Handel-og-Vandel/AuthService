@@ -1,30 +1,22 @@
 name: Docker Image CI
 
 on:
-  push:
-    branches: [ "develop" ]
   pull_request:
-    branches: [ "develop" ]
+    branches: [ "main" ]
 
 jobs:
 
   build:
-
     runs-on: ubuntu-latest
-
+    env:
+      DOCKER_USER: ${{ secrets.DOCKER_USER }}
+      DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     - name: Log in to Docker Hub
-      env:
-        DOCKER_USER: ${{ secrets.DOCKER_USER }}
-        DOCKER_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
       run:
-        echo $DOCKER_TOKEN | docker login --username $DOCKER_USER --password-stdin
+        docker login --username $DOCKER_USER --password $DOCKER_PASSWORD
     - name: Build the Docker image
-      env:
-        DOCKER_USER: ${{ secrets.DOCKER_USER }}
-      run: docker build . --file AuthService/Dockerfile --tag ${DOCKER_USER}/authservice:latest-develop
+      run: docker build . --file AuthService/Dockerfile --tag ${DOCKER_USER}/authservice:latest
     - name: Push Docker image to Docker Hub
-      env:
-        DOCKER_USER: ${{ secrets.DOCKER_USER }}
-      run: docker push ${DOCKER_USER}/authservice:latest-develop
+      run: docker push ${DOCKER_USER}/authservice:latest
