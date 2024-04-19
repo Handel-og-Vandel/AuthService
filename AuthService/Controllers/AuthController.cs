@@ -1,76 +1,114 @@
-using System;
+using System.Text;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.IdentityModel.Tokens;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
-using System.Text;
-using System.Threading.Tasks;
-using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.Mvc;
-using Microsoft.Extensions.Configuration;
-using Microsoft.IdentityModel.Tokens;
+using System.Text.Json;
+using Model;
+using System.Security.Cryptography;
 
 namespace AuthService.Controllers
 {
     /// <summary>
-    /// <link>https://medium.com/geekculture/how-to-add-jwt-authentication-to-an-asp-net-core-api-84e469e9f019</link>
+    /// Authentication for identity provider in HaaV infrastructure.
     /// </summary>
-    [Route("api/[controller]")]
+    [Route("api/v1/[controller]")]
     [ApiController]
     public class AuthController : ControllerBase
     {
         private readonly IConfiguration _config;
         private readonly ILogger<AuthController> _logger;
+        private readonly IKeyVaultRepository _secrets;
+        private readonly IHttpClientFactory _httpClientFactory;
 
-        public AuthController(ILogger<AuthController> logger, IConfiguration config)
+        /// <summary>
+        /// Create instance of AuthController.
+        /// </summary>
+        /// <param name="logger"></param>
+        /// <param name="config"></param>
+        /// <param name="secrets"></param>
+        /// <param name="httpClientFactory"></param>
+        public AuthController(ILogger<AuthController> logger, IConfiguration config, 
+                                IKeyVaultRepository secrets, IHttpClientFactory httpClientFactory)
         {
             _config = config;
             _logger = logger;
-
-            _logger.LogInformation($"The secret is: {_config["Secret"]}");
+            _secrets = secrets;
+            _httpClientFactory = httpClientFactory;
         }
 
+        /// <summary>
+        /// Handle user credentials and return a JWT token.
+        /// </summary>
+        /// <param name="login">User credentials</param>
+        /// <returns>JWT token on credentials accepted</returns> 
         [AllowAnonymous]
         [HttpPost("login")]
-        public async Task<IActionResult> Login([FromBody] LoginModel login)
+        public async Task<IActionResult> Login([FromBody] Credentials login)
         {
-            // Replace this with your own authentication logic
-            if (login.Username != "username" || login.Password != "password")
+            
+            _logger.LogInformation("Login attempt for user: {}", login.Username);
+
+            try
             {
-                return Unauthorized();
+                if (!login.Username.IsNullOrEmpty() && !login.Password.IsNullOrEmpty())
+                {
+                    var client = _httpClientFactory.CreateClient();
+
+                    var endpointUrl = _config["UserEndpoint"]! + login.Username;
+
+                    _logger.LogInformation("Retrieving user data from: {}", endpointUrl);
+
+                    var response = await client.GetAsync(endpointUrl);
+                    var userJson = await response.Content.ReadAsStringAsync();
+
+                    _logger.LogInformation("User data retrieved: {}", userJson);
+
+                    var user = JsonSerializer.Deserialize<Model.User>(userJson);
+
+                    if (response.IsSuccessStatusCode && user != null )
+                    {
+                        if (login != null && user.Password == ComputeSHA256Hash(login.Password + user.Salt))
+                        {
+                            var token = GenerateJwtToken(login.Username!);
+                            return Ok(token);
+                        }
+                    }
+                    else
+                    {
+                        return BadRequest($"Failed to retrieve user: {response.StatusCode}");
+                    }
+                }
+                else
+                {
+                    return BadRequest("Invalid credentials data.");
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, ex.Message);
+                return StatusCode(500, $"Internal server error.");
             }
 
-            var token = GenerateJwtToken(login.Username);
-            return Ok(new { token });
+            return Unauthorized();
         }
 
-        private string GenerateJwtToken(string username)
-        {
-            var securityKey = 
-                new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_config["Secret"]));
-            
-            var credentials = 
-                new SigningCredentials(securityKey, SecurityAlgorithms.HmacSha256);
-            
-            var claims = new[]
-            {
-                new Claim(ClaimTypes.NameIdentifier, username)
-            };
-
-            var token = new JwtSecurityToken(
-                _config["Issuer"],
-                "http://localhost",
-                claims,
-                expires: DateTime.Now.AddMinutes(15),
-                signingCredentials: credentials);
-
-            return new JwtSecurityTokenHandler().WriteToken(token);
-        }
-
+        /// <summary>
+        /// Helping endpoint for validate/debugging a JWT token.
+        /// </summary>
+        /// <param name="token"></param>
+        /// <returns></returns> <summary>
+        /// 
+        /// </summary>
+        /// <param name="token"></param>
+        /// <returns></returns>
         [AllowAnonymous]
         [HttpPost("validate")]
-        public async Task<IActionResult> ValidateJwtToken([FromBody] string? token)
+        public IActionResult ValidateJwtToken([FromBody] string? token)
         {
             if (token.IsNullOrEmpty())
-                return BadRequest("Invalid token submited.");
+                return BadRequest("No token found in input.");
 
             var tokenHandler = new JwtSecurityTokenHandler();
             var key = Encoding.ASCII.GetBytes(_config["Secret"]!);
@@ -101,11 +139,47 @@ namespace AuthService.Controllers
             }
         }
 
-        public class LoginModel
+        private async Task<string> GenerateJwtToken(string username)
         {
-            public string? Username { get; set; }
-            public string? Password { get; set; }
+            var secret = await _secrets.GetSecretAsync("secret");
+            var issuer = await _secrets.GetSecretAsync("issuer");
+
+            if (secret.IsNullOrEmpty() || issuer.IsNullOrEmpty())
+                throw new Exception("Secret or issuer not found in vault.");
+
+            var securityKey = 
+                new SymmetricSecurityKey(Encoding.UTF8.GetBytes(secret!));
+            
+            var credentials = 
+                new SigningCredentials(securityKey, SecurityAlgorithms.HmacSha256);
+            
+            var claims = new[]
+            {
+                new Claim(ClaimTypes.NameIdentifier, username)
+            };
+
+            var token = new JwtSecurityToken(
+                issuer,
+                "http://localhost",
+                claims,
+                expires: DateTime.Now.AddMinutes(15),
+                signingCredentials: credentials);
+
+            return new JwtSecurityTokenHandler().WriteToken(token);
         }
+
+        private string ComputeSHA256Hash(string rawData)
+        {
+            byte[] bytes = SHA256.HashData(Encoding.UTF8.GetBytes(rawData));
+
+            StringBuilder builder = new();
+            for (int i = 0; i < bytes.Length; i++)
+            {
+                builder.Append(bytes[i].ToString("x2"));
+            }
+            return builder.ToString();
+        }
+
     }
 }
 
