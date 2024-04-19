@@ -6,13 +6,14 @@ services:
   authservice:
     image: authservice
     build:
-      context: .
+      context: ..
       dockerfile: AuthService/Dockerfile
     ports:
-      - 5001:80
+      - 5000:8080
     environment:
       - ASPNETCORE_ENVIRONMENT=Development
+      - LOKI_HOSTNAME="http://localhost:3100"
       - Secret="!Hello918273645World!"
-      - Issuer="QGT-AuthService"
+      - Issuer="HaaV-AuthService"
     volumes:
       - ~/.vsdbg:/remote_debugger:rw
