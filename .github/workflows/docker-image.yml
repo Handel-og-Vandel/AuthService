@@ -17,7 +17,7 @@ jobs:
         DOCKER_USER: ${{ secrets.DOCKER_USER }}
         DOCKER_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
       run:
-        echo $DOCKER_TOKEN | docker login --username $DOCKER_USER --password-stdin
+        docker login --username $DOCKER_USER --password $DOCKER_TOKEN
     - name: Build the Docker image
       run: docker build . --file AuthService/Dockerfile --tag ${DOCKER_USER}/authservice:latest
     - name: Push Docker image to Docker Hub
