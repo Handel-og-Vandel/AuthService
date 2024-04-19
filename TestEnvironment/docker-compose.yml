@@ -1,10 +1,10 @@
 # Please refer https://aka.ms/HTTPSinContainer on how to setup an https developer certificate for your ASP.NET Core service.
 
-version: '3.4'
+version: '3.7'
 
 services:
   authservice:
-    image: authservice
+    image: hnrkjnsn/authservice:latest-dev
     build:
       context: ..
       dockerfile: AuthService/Dockerfile

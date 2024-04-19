@@ -12,9 +12,19 @@ try
     builder.Logging.ClearProviders();
     builder.Host.UseNLog();
 
+    var environment = builder.Configuration["ASPNETCORE_ENVIRONMENT"] ?? "Development";
+
     // Add services to the container.
-    //builder.Services.AddSingleton<IKeyVaultRepository, HashiCorpVaultRepository>();
-    builder.Services.AddSingleton<IKeyVaultRepository, EnvironmentVaultRepository>();
+    if (environment == "Development")
+    {
+        logger.Debug("Using environment vault repository");
+        builder.Services.AddSingleton<IKeyVaultRepository, EnvironmentVaultRepository>();
+    }
+    else
+    {
+        logger.Debug("Using HashiCorp vault repository");
+        builder.Services.AddSingleton<IKeyVaultRepository, HashiCorpVaultRepository>();
+    }
     builder.Services.AddHttpClient();
     builder.Services.AddControllers();
     builder.Services.AddEndpointsApiExplorer();
