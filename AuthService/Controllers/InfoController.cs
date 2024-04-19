@@ -36,10 +36,10 @@ namespace AuthService.Controllers
                 var hostName = System.Net.Dns.GetHostName();
                 var ips = await System.Net.Dns.GetHostAddressesAsync(hostName);
                 var ipa = ips.First().MapToIPv4().ToString();
-                properties.Add("hosted-at-address", ipa);
+                properties.Add("hostip", ipa);
             } catch (Exception ex) {
                 _logger.LogError(ex.Message);
-                properties.Add("hosted-at-address", "Could not resolve IP-address");
+                properties.Add("hostip", "[unknown]");
             }
 
             return properties;

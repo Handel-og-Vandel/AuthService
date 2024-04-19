@@ -47,71 +47,82 @@ namespace AuthService.Controllers
         [HttpPost("login")]
         public async Task<IActionResult> Login([FromBody] Credentials login)
         {
-            
-            _logger.LogInformation("Login attempt for user: {}", login.Username);
-
-            try
+            if (!login.Username.IsNullOrEmpty() && !login.Password.IsNullOrEmpty())
             {
-                if (!login.Username.IsNullOrEmpty() && !login.Password.IsNullOrEmpty())
-                {
-                    var client = _httpClientFactory.CreateClient();
-
-                    var endpointUrl = _config["UserEndpoint"]! + login.Username;
-
-                    _logger.LogInformation("Retrieving user data from: {}", endpointUrl);
-
-                    var response = await client.GetAsync(endpointUrl);
-                    var userJson = await response.Content.ReadAsStringAsync();
-
-                    _logger.LogInformation("User data retrieved: {}", userJson);
-
-                    var user = JsonSerializer.Deserialize<Model.User>(userJson);
-
-                    if (response.IsSuccessStatusCode && user != null )
+                var user = await GetUserData(login);
+               
+                if (user != null) {
+                    if (user.Password == ComputeSHA256Hash(login.Password + user.Salt))
                     {
-                        if (login != null && user.Password == ComputeSHA256Hash(login.Password + user.Salt))
-                        {
-                            var token = GenerateJwtToken(login.Username!);
-                            return Ok(token);
-                        }
+                        var token = GenerateJwtToken(login.Username!);
+                        _logger.LogInformation("User {username} logged in.", login.Username);
+                        return Ok(token);
                     }
                     else
                     {
-                        return BadRequest($"Failed to retrieve user: {response.StatusCode}");
+                        _logger.LogWarning("User {username} failed to login.", login.Username);
+                        return Unauthorized();
                     }
                 }
                 else
                 {
-                    return BadRequest("Invalid credentials data.");
+                    return BadRequest($"Failed to retrieve user data for {login.Username}.");
                 }
             }
-            catch (Exception ex)
+            else
             {
+                return BadRequest("Invalid credentials data.");
+            }
+        }
+
+        private async Task<User?> GetUserData(Credentials login)
+        {
+            var endpointUrl = _config["UserEndpoint"]! + login.Username;
+            _logger.LogInformation("Retrieving user data from: {}", endpointUrl);
+            
+            var client = _httpClientFactory.CreateClient();
+            HttpResponseMessage response;
+
+            try {
+                client.DefaultRequestHeaders.Add("Accept", "application/json");
+                response = await client.GetAsync(endpointUrl);
+            } catch (Exception ex) {
                 _logger.LogError(ex, ex.Message);
-                return StatusCode(500, $"Internal server error.");
+                return null;
             }
 
-            return Unauthorized();
+            if (response.IsSuccessStatusCode)
+            {
+                try {
+                    string? userJson = await response.Content.ReadAsStringAsync();
+                    return JsonSerializer.Deserialize<User>(userJson);
+                } catch (Exception ex) {
+                    _logger.LogError(ex, ex.Message);
+                    return null;
+                }
+            }
+            return null;
         }
 
         /// <summary>
         /// Helping endpoint for validate/debugging a JWT token.
         /// </summary>
         /// <param name="token"></param>
-        /// <returns></returns> <summary>
-        /// 
-        /// </summary>
-        /// <param name="token"></param>
         /// <returns></returns>
         [AllowAnonymous]
         [HttpPost("validate")]
-        public IActionResult ValidateJwtToken([FromBody] string? token)
+        public async Task<IActionResult> ValidateJwtToken([FromBody] string? token)
         {
             if (token.IsNullOrEmpty())
                 return BadRequest("No token found in input.");
 
             var tokenHandler = new JwtSecurityTokenHandler();
-            var key = Encoding.ASCII.GetBytes(_config["Secret"]!);
+            var secret = await _secrets.GetSecretAsync("secret");
+            
+            if (secret.IsNullOrEmpty())
+                throw new Exception("Secret not found in vault.");
+
+            var key = Encoding.ASCII.GetBytes(secret!);
 
             try
             {
