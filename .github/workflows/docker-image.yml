@@ -15,9 +15,9 @@ jobs:
     - name: Log in to Docker Hub
       env:
         DOCKER_USER: ${{ secrets.DOCKER_USER }}
-        DOCKER_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
       run:
-        docker login --username $DOCKER_USER --password $DOCKER_TOKEN
+        docker login --username $DOCKER_USER --password $DOCKER_PASSWORD
     - name: Build the Docker image
       run: docker build . --file AuthService/Dockerfile --tag ${DOCKER_USER}/authservice:latest
     - name: Push Docker image to Docker Hub
